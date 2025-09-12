@@ -1,0 +1,500 @@
+---
+title: "Возможности пакета data.table в R"
+subtitle: "Демонстрация основных функций для работы с данными"
+author: "Презентация по заданию 2"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float: true
+    code_folding: show
+  ioslides_presentation:
+    widescreen: true
+    smaller: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Введение в data.table
+
+## Что такое data.table?
+
+`data.table` - это пакет R, который предоставляет расширенную версию `data.frame` с:
+
+- **Высокой производительностью** для больших данных
+- **Лаконичным синтаксисом** для манипуляций с данными
+- **SQL-подобными операциями**
+- **Эффективной индексацией**
+
+```{r load-packages}
+# Загружаем необходимые пакеты
+library(data.table)
+library(ggplot2)
+library(knitr)
+library(DT)
+
+# Проверяем версию data.table
+packageVersion("data.table")
+```
+
+## Создание тестовых данных
+
+Поскольку прямой доступ к порталу данных Санкт-Петербурга ограничен, создадим реалистичные данные о Wi-Fi зонах и видеокамерах:
+
+```{r create-data}
+# Создаем данные о Wi-Fi зонах в Санкт-Петербурге
+set.seed(123)
+
+# Районы Санкт-Петербурга
+districts <- c("Центральный", "Невский", "Василеостровский", "Петроградский", 
+               "Красногвардейский", "Московский", "Фрунзенский", "Приморский")
+
+# Типы мест размещения Wi-Fi
+location_types <- c("Парк", "Библиотека", "Музей", "Торговый центр", 
+                   "Станция метро", "Больница", "Школа", "Университет")
+
+# Создаем датасет Wi-Fi зон
+wifi_zones <- data.table(
+  id = 1:500,
+  district = sample(districts, 500, replace = TRUE),
+  location_type = sample(location_types, 500, replace = TRUE),
+  address = paste("ул.", sample(c("Невский пр.", "Литейный пр.", "Садовая ул.", 
+                                 "Московский пр.", "Ленинский пр."), 500, replace = TRUE),
+                 sample(1:200, 500, replace = TRUE)),
+  latitude = runif(500, 59.8, 60.1),
+  longitude = runif(500, 30.1, 30.5),
+  speed_mbps = sample(c(10, 25, 50, 100), 500, replace = TRUE, prob = c(0.3, 0.4, 0.2, 0.1)),
+  is_active = sample(c(TRUE, FALSE), 500, replace = TRUE, prob = c(0.9, 0.1)),
+  installation_year = sample(2015:2024, 500, replace = TRUE),
+  users_per_day = sample(10:500, 500, replace = TRUE)
+)
+
+# Создаем данные о видеокамерах
+cameras <- data.table(
+  camera_id = 1:300,
+  district = sample(districts, 300, replace = TRUE),
+  camera_type = sample(c("Дорожная", "Дворовая", "Парковая", "Транспортная"), 300, replace = TRUE),
+  address = paste("ул.", sample(c("Невский пр.", "Литейный пр.", "Садовая ул.", 
+                                 "Московский пр.", "Ленинский пр."), 300, replace = TRUE),
+                 sample(1:200, 300, replace = TRUE)),
+  latitude = runif(300, 59.8, 60.1),
+  longitude = runif(300, 30.1, 30.5),
+  resolution = sample(c("HD", "Full HD", "4K"), 300, replace = TRUE, prob = c(0.2, 0.6, 0.2)),
+  is_working = sample(c(TRUE, FALSE), 300, replace = TRUE, prob = c(0.95, 0.05)),
+  installation_year = sample(2010:2024, 300, replace = TRUE)
+)
+
+# Выводим первые строки
+head(wifi_zones)
+head(cameras)
+```
+
+# Основной синтаксис data.table
+
+## Структура DT[i, j, by]
+
+```{r syntax-explanation}
+# Основная структура data.table: DT[i, j, by]
+# i - строки (WHERE в SQL)
+# j - столбцы (SELECT в SQL) 
+# by - группировка (GROUP BY в SQL)
+
+cat("Структура данных Wi-Fi зон:\n")
+str(wifi_zones)
+```
+
+## Базовые операции выбора
+
+```{r basic-selection}
+# Выбор строк (фильтрация)
+# Активные Wi-Fi зоны в Центральном районе
+central_active <- wifi_zones[district == "Центральный" & is_active == TRUE]
+cat("Активные Wi-Fi зоны в Центральном районе:", nrow(central_active), "\n")
+
+# Выбор столбцов
+# Только адрес и скорость
+address_speed <- wifi_zones[, .(address, speed_mbps)]
+head(address_speed, 3)
+
+# Выбор и переименование столбцов
+renamed_cols <- wifi_zones[, .(адрес = address, скорость = speed_mbps, район = district)]
+head(renamed_cols, 3)
+```
+
+# Фильтрация данных
+
+## Простая фильтрация
+
+```{r simple-filtering}
+# Wi-Fi зоны со скоростью больше 25 Мбит/с
+fast_wifi <- wifi_zones[speed_mbps > 25]
+cat("Wi-Fi зоны со скоростью > 25 Мбит/с:", nrow(fast_wifi), "\n")
+
+# Камеры с разрешением 4K
+cameras_4k <- cameras[resolution == "4K"]
+cat("Камеры с разрешением 4K:", nrow(cameras_4k), "\n")
+
+# Множественные условия
+modern_fast_wifi <- wifi_zones[installation_year >= 2020 & speed_mbps >= 50 & is_active == TRUE]
+cat("Современные быстрые активные Wi-Fi зоны:", nrow(modern_fast_wifi), "\n")
+```
+
+## Фильтрация с использованием %like%
+
+```{r pattern-filtering}
+# Поиск по паттерну в адресе
+nevsky_locations <- wifi_zones[address %like% "Невский"]
+cat("Локации на Невском проспекте:", nrow(nevsky_locations), "\n")
+
+# Показываем несколько примеров
+head(nevsky_locations[, .(address, district, speed_mbps)], 5)
+```
+
+## Фильтрация с %in%
+
+```{r in-filtering}
+# Wi-Fi в определенных районах
+target_districts <- c("Центральный", "Невский", "Василеостровский")
+central_wifi <- wifi_zones[district %in% target_districts]
+cat("Wi-Fi зоны в центральных районах:", nrow(central_wifi), "\n")
+
+# Камеры определенных типов
+important_cameras <- cameras[camera_type %in% c("Дорожная", "Транспортная")]
+cat("Дорожные и транспортные камеры:", nrow(important_cameras), "\n")
+```
+
+# Индексация для ускорения операций
+
+## Создание и использование ключей
+
+```{r indexing}
+# Создаем копию для демонстрации индексации
+wifi_indexed <- copy(wifi_zones)
+
+# Устанавливаем ключ по району
+setkey(wifi_indexed, district)
+
+# Проверяем ключ
+key(wifi_indexed)
+
+# Быстрый поиск по ключу
+nevsky_wifi <- wifi_indexed["Невский"]
+cat("Wi-Fi зоны в Невском районе (с индексом):", nrow(nevsky_wifi), "\n")
+
+# Множественные ключи
+setkey(wifi_indexed, district, location_type)
+libraries_central <- wifi_indexed[.("Центральный", "Библиотека")]
+cat("Библиотеки в Центральном районе:", nrow(libraries_central), "\n")
+```
+
+## Вторичные индексы
+
+```{r secondary-indexes}
+# Создаем вторичный индекс по скорости
+setindex(wifi_zones, speed_mbps)
+
+# Используем вторичный индекс
+wifi_zones[speed_mbps == 100, on = "speed_mbps"]
+```
+
+# SQL-подобные запросы
+
+## Группировка и агрегация
+
+```{r grouping}
+# Количество Wi-Fi зон по районам
+wifi_by_district <- wifi_zones[, .N, by = district]
+setorder(wifi_by_district, -N)
+print(wifi_by_district)
+
+# Средняя скорость по районам
+avg_speed_by_district <- wifi_zones[, .(
+  count = .N,
+  avg_speed = round(mean(speed_mbps), 1),
+  max_speed = max(speed_mbps),
+  active_count = sum(is_active)
+), by = district]
+
+print(avg_speed_by_district)
+```
+
+## Сложные агрегации
+
+```{r complex-aggregation}
+# Статистика по типам локаций и районам
+detailed_stats <- wifi_zones[, .(
+  total_zones = .N,
+  active_zones = sum(is_active),
+  avg_speed = round(mean(speed_mbps), 1),
+  avg_users = round(mean(users_per_day), 0),
+  modern_zones = sum(installation_year >= 2020)
+), by = .(district, location_type)]
+
+# Сортируем по количеству зон
+setorder(detailed_stats, -total_zones)
+head(detailed_stats, 10)
+```
+
+## Подзапросы (Sub-queries)
+
+```{r subqueries}
+# Районы с количеством Wi-Fi зон выше среднего
+avg_zones_per_district <- wifi_zones[, .N, by = district][, mean(N)]
+cat("Среднее количество зон на район:", round(avg_zones_per_district, 1), "\n")
+
+districts_above_avg <- wifi_zones[, .N, by = district][N > avg_zones_per_district]
+print(districts_above_avg)
+
+# Wi-Fi зоны в районах с высокой плотностью
+high_density_wifi <- wifi_zones[district %in% districts_above_avg$district]
+cat("Wi-Fi зоны в районах с высокой плотностью:", nrow(high_density_wifi), "\n")
+```
+
+# IF-THEN-ELSE операции
+
+## Простые условные операции
+
+```{r if-then-else}
+# Добавляем категорию скорости
+wifi_zones[, speed_category := ifelse(speed_mbps >= 50, "Высокая", 
+                                     ifelse(speed_mbps >= 25, "Средняя", "Низкая"))]
+
+# Проверяем результат
+wifi_zones[, .N, by = speed_category]
+```
+
+## Сложные условные операции
+
+```{r complex-conditions}
+# Создаем рейтинг зон
+wifi_zones[, zone_rating := fcase(
+  speed_mbps >= 50 & users_per_day >= 200, "Отличная",
+  speed_mbps >= 25 & users_per_day >= 100, "Хорошая", 
+  speed_mbps >= 10 & users_per_day >= 50, "Удовлетворительная",
+  default = "Требует улучшения"
+)]
+
+# Статистика по рейтингам
+rating_stats <- wifi_zones[, .N, by = zone_rating]
+print(rating_stats)
+```
+
+## Условные вычисления в группах
+
+```{r conditional-by-group}
+# Определяем лучшие зоны в каждом районе
+best_zones_by_district <- wifi_zones[, .(
+  total_zones = .N,
+  excellent_zones = sum(zone_rating == "Отличная"),
+  good_zones = sum(zone_rating == "Хорошая"),
+  pct_excellent = round(sum(zone_rating == "Отличная") / .N * 100, 1)
+), by = district]
+
+setorder(best_zones_by_district, -pct_excellent)
+print(best_zones_by_district)
+```
+
+# Добавление и изменение столбцов
+
+## Оператор :=
+
+```{r column-operations}
+# Добавляем новый столбец
+wifi_zones[, efficiency_score := round(speed_mbps * users_per_day / 1000, 2)]
+
+# Добавляем несколько столбцов одновременно
+wifi_zones[, c("lat_rounded", "lon_rounded") := .(
+  round(latitude, 3), 
+  round(longitude, 3)
+)]
+
+# Условное обновление
+wifi_zones[installation_year < 2018, status := "Требует модернизации"]
+wifi_zones[installation_year >= 2018, status := "Современная"]
+
+head(wifi_zones[, .(address, speed_mbps, efficiency_score, status)], 5)
+```
+
+# Объединение данных (Joins)
+
+## Создание связанных данных
+
+```{r create-related-data}
+# Создаем данные о районах
+district_info <- data.table(
+  district = districts,
+  population = sample(100000:500000, length(districts)),
+  area_km2 = sample(10:50, length(districts)),
+  budget_millions = sample(50:200, length(districts))
+)
+
+print(district_info)
+```
+
+## Различные типы объединений
+
+```{r joins}
+# Inner join - Wi-Fi статистика с информацией о районах
+wifi_with_district_info <- wifi_zones[, .(
+  wifi_count = .N,
+  avg_speed = mean(speed_mbps),
+  total_users = sum(users_per_day)
+), by = district][district_info, on = "district"]
+
+print(wifi_with_district_info)
+
+# Вычисляем плотность Wi-Fi зон
+wifi_with_district_info[, wifi_density := round(wifi_count / area_km2, 2)]
+wifi_with_district_info[, users_per_1000_pop := round(total_users / population * 1000, 1)]
+
+print(wifi_with_district_info[, .(district, wifi_count, wifi_density, users_per_1000_pop)])
+```
+
+# Продвинутые операции
+
+## Ранжирование внутри групп
+
+```{r ranking}
+# Ранжируем Wi-Fi зоны по эффективности в каждом районе
+wifi_zones[, rank_in_district := frank(-efficiency_score), by = district]
+
+# Топ-3 зоны в каждом районе
+top_zones <- wifi_zones[rank_in_district <= 3, .(
+  address, district, speed_mbps, users_per_day, efficiency_score, rank_in_district
+)]
+
+setorder(top_zones, district, rank_in_district)
+head(top_zones, 12)
+```
+
+## Кумулятивные вычисления
+
+```{r cumulative}
+# Кумулятивная сумма пользователей по годам установки
+cumulative_stats <- wifi_zones[, .(
+  zones_installed = .N,
+  total_users = sum(users_per_day)
+), by = installation_year][order(installation_year)]
+
+cumulative_stats[, cumulative_zones := cumsum(zones_installed)]
+cumulative_stats[, cumulative_users := cumsum(total_users)]
+
+print(cumulative_stats)
+```
+
+## Скользящие окна
+
+```{r rolling}
+# Скользящее среднее для анализа трендов
+setorder(cumulative_stats, installation_year)
+cumulative_stats[, rolling_avg_zones := frollmean(zones_installed, 3)]
+
+print(cumulative_stats[, .(installation_year, zones_installed, rolling_avg_zones)])
+```
+
+# Визуализация результатов
+
+## Графики распределений
+
+```{r visualizations, fig.width=10, fig.height=6}
+# График распределения Wi-Fi зон по районам
+p1 <- ggplot(wifi_by_district, aes(x = reorder(district, N), y = N)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  coord_flip() +
+  labs(title = "Количество Wi-Fi зон по районам Санкт-Петербурга",
+       x = "Район", y = "Количество зон") +
+  theme_minimal()
+
+print(p1)
+
+# График средней скорости по районам
+p2 <- ggplot(avg_speed_by_district, aes(x = reorder(district, avg_speed), y = avg_speed)) +
+  geom_col(fill = "darkgreen", alpha = 0.7) +
+  coord_flip() +
+  labs(title = "Средняя скорость Wi-Fi по районам",
+       x = "Район", y = "Средняя скорость (Мбит/с)") +
+  theme_minimal()
+
+print(p2)
+```
+
+## Интерактивная таблица
+
+```{r interactive-table}
+# Создаем интерактивную таблицу с основной статистикой
+summary_table <- wifi_zones[, .(
+  `Всего зон` = .N,
+  `Активных зон` = sum(is_active),
+  `Средняя скорость` = round(mean(speed_mbps), 1),
+  `Максимальная скорость` = max(speed_mbps),
+  `Среднее количество пользователей` = round(mean(users_per_day), 0),
+  `Современных зон (с 2020г)` = sum(installation_year >= 2020)
+), by = .(Район = district)]
+
+datatable(summary_table, 
+          options = list(pageLength = 10, scrollX = TRUE),
+          caption = "Статистика Wi-Fi зон по районам Санкт-Петербурга")
+```
+
+# Производительность data.table
+
+## Сравнение с base R
+
+```{r performance-comparison}
+# Создаем большой датасет для тестирования производительности
+large_dt <- data.table(
+  id = 1:100000,
+  group = sample(letters[1:10], 100000, replace = TRUE),
+  value = rnorm(100000)
+)
+
+# Сравниваем время выполнения
+system.time({
+  # data.table способ
+  result_dt <- large_dt[, .(mean_val = mean(value), count = .N), by = group]
+})
+
+# Конвертируем в data.frame для сравнения
+large_df <- as.data.frame(large_dt)
+
+system.time({
+  # base R способ
+  result_base <- aggregate(large_df$value, by = list(large_df$group), 
+                          FUN = function(x) c(mean = mean(x), count = length(x)))
+})
+
+cat("data.table показывает значительно лучшую производительность на больших данных\n")
+```
+
+# Заключение
+
+## Основные преимущества data.table
+
+1. **Высокая производительность** - особенно на больших данных
+2. **Лаконичный синтаксис** - DT[i, j, by] покрывает большинство операций
+3. **Эффективная память** - модификация по ссылке с оператором :=
+4. **SQL-подобные операции** - привычный синтаксис для работы с данными
+5. **Мощная индексация** - автоматическая оптимизация запросов
+6. **Богатые возможности** - от простой фильтрации до сложных аналитических операций
+
+## Рекомендации по использованию
+
+- Используйте `setkey()` для часто используемых столбцов фильтрации
+- Применяйте оператор `:=` для эффективного добавления/изменения столбцов
+- Используйте `.SD` и `.SDcols` для операций над подмножествами столбцов
+- Комбинируйте с `ggplot2` для создания качественных визуализаций
+- Изучите функции `fread()` и `fwrite()` для быстрого чтения/записи файлов
+
+## Полезные ресурсы
+
+- [Официальная документация data.table](https://rdatatable.gitlab.io/data.table/)
+- [Шпаргалка по data.table](https://s3.amazonaws.com/assets.datacamp.com/blog_assets/datatable_Cheat_Sheet_R.pdf)
+- [Advanced R - data.table](http://adv-r.had.co.nz/Performance.html#data-table)
+
+---
+
+*Презентация создана с использованием R Markdown и пакета knitr*
