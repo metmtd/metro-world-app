@@ -87,7 +87,7 @@ streamlit run main.py
 
 ## 👨‍💻 Автор
 
-met549
+metmtd
 
 ## 📄 Лицензия
 
